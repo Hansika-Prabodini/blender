@@ -5,6 +5,7 @@
 import fnmatch
 import json
 import pathlib
+import types
 
 from dataclasses import dataclass, field
 
@@ -178,7 +179,7 @@ class TestConfig:
         return executables
 
     @staticmethod
-    def _read_config_module(base_dir: pathlib.Path) -> None:
+    def _read_config_module(base_dir: pathlib.Path) -> types.ModuleType:
         # Import config.py as a module.
         import importlib.util
         spec = importlib.util.spec_from_file_location("testconfig", base_dir / 'config.py')

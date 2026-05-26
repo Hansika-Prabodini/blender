@@ -26,7 +26,7 @@ BOOL LaunchedFromSteam()
 
   /* First find our parent process ID. */
   DWORD our_pid = GetCurrentProcessId();
-  DWORD parent_pid = -1;
+  DWORD parent_pid = 0;
 
   do {
     if (process_entry.th32ProcessID == our_pid) {
@@ -35,7 +35,7 @@ BOOL LaunchedFromSteam()
     }
   } while (Process32Next(hSnapShot, &process_entry));
 
-  if (parent_pid == -1 || !Process32First(hSnapShot, &process_entry)) {
+  if (parent_pid == 0 || !Process32First(hSnapShot, &process_entry)) {
     CloseHandle(hSnapShot);
     return (FALSE);
   }

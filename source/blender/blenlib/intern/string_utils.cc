@@ -291,7 +291,7 @@ void BLI_string_split_prefix(const char *string,
     }
   }
 
-  BLI_strncpy(r_body, string, len);
+  BLI_strncpy(r_body, string, len + 1);
 }
 
 size_t BLI_string_flip_side_name(char *name_dst,

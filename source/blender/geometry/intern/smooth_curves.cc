@@ -71,14 +71,13 @@ static void gaussian_blur_1D(const Span<T> src,
   const int64_t total_points = src.size();
   const int64_t last_pt = total_points - 1;
 
-  auto is_end_and_fixed = [smooth_ends, is_cyclic, last_pt](int index) {
-    return !smooth_ends && !is_cyclic && ELEM(index, 0, last_pt);
-  };
+  /* Pre-compute constant condition to avoid repeated evaluation inside parallel loops. */
+  const bool has_fixed_ends = !smooth_ends && !is_cyclic;
 
   /* Initialize at zero. */
   threading::parallel_for(dst.index_range(), 1024, [&](const IndexRange range) {
     for (const int64_t index : range) {
-      if (!is_end_and_fixed(index)) {
+      if (!has_fixed_ends || !ELEM(index, 0, last_pt)) {
         dst[index] = T(0);
       }
     }
@@ -90,7 +89,7 @@ static void gaussian_blur_1D(const Span<T> src,
     threading::parallel_for(dst.index_range(), 1024, [&](const IndexRange range) {
       for (const int64_t index : range) {
         /* Filter out endpoints. */
-        if (is_end_and_fixed(index)) {
+        if (has_fixed_ends && ELEM(index, 0, last_pt)) {
           continue;
         }
 
@@ -101,7 +100,10 @@ static void gaussian_blur_1D(const Span<T> src,
         int64_t before = index - offset;
         int64_t after = index + offset;
         if (is_cyclic) {
-          before = (before % total_points + total_points) % total_points;
+          /* Single-branch cyclic wrap: before is at most -(total_points-1) so one add suffices. */
+          if (before < 0) {
+            before += total_points;
+          }
           after = after % total_points;
         }
         else {
@@ -138,7 +140,7 @@ static void gaussian_blur_1D(const Span<T> src,
   devirtualize_varray(influence_by_point, [&](const auto influence_by_point) {
     threading::parallel_for(dst.index_range(), 1024, [&](const IndexRange range) {
       for (const int64_t index : range) {
-        if (!is_end_and_fixed(index)) {
+        if (!has_fixed_ends || !ELEM(index, 0, last_pt)) {
           total_weight[index] += w - w2;
           dst[index] = src[index] + influence_by_point[index] * dst[index] / total_weight[index];
         }

@@ -1371,7 +1371,8 @@ static void merge_customdata_all(Span<int> dest_map,
   }
   OffsetIndices<int> groups_offs(groups_offs_);
 
-  bool finalize_map = false;
+  /* Track indices that need deferred resolution instead of scanning the full map. */
+  Vector<int> deferred_indices;
   int dest_index = 0;
   for (int i = 0; i < source_size; i++) {
     while (i < source_size && dest_map[i] == OUT_OF_CONTEXT) {
@@ -1410,21 +1411,18 @@ static void merge_customdata_all(Span<int> dest_map,
         BLI_assert(r_final_map[i] < dest_size);
       }
       else {
-        /* Mark as negative to set at the end. */
+        /* Mark as negative to set at the end; track index to avoid full-array scan. */
         r_final_map[i] = -elem_dest;
-        finalize_map = true;
+        deferred_indices.append(i);
       }
     }
   }
 
-  if (finalize_map) {
-    for (const int i : r_final_map.index_range()) {
-      if (r_final_map[i] < 0) {
-        r_final_map[i] = r_final_map[-r_final_map[i]];
-        BLI_assert(r_final_map[i] < dest_size);
-      }
-      BLI_assert(r_final_map[i] >= 0);
-    }
+  /* Resolve deferred entries: only iterate over the small set of tracked indices. */
+  for (const int i : deferred_indices) {
+    r_final_map[i] = r_final_map[-r_final_map[i]];
+    BLI_assert(r_final_map[i] >= 0);
+    BLI_assert(r_final_map[i] < dest_size);
   }
 
   r_src_index_offsets.append_unchecked(r_src_index_data.size());

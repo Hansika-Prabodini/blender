@@ -590,19 +590,41 @@ struct AttrFallbackData {
  * that exists on the instances, a pair is returned that contains the attribute index and the
  * corresponding attribute data.
  */
+/**
+ * Maps attribute names from instances to their indices in the ordered attributes.
+ * This cache avoids repeated string lookups across multiple prepare_attribute_fallbacks calls.
+ */
+struct AttributeNameIndexCache {
+  Map<StringRef, int> name_to_index;
+
+  AttributeNameIndexCache(const bke::AttributeAccessor &attributes,
+                          const OrderedAttributes &ordered_attributes)
+  {
+    /* Pre-compute the mapping of attribute names to indices once. */
+    attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
+      const int index = ordered_attributes.names.index_of_try(iter.name);
+      if (index != -1) {
+        name_to_index.add_new(iter.name, index);
+      }
+    });
+  }
+};
+
 static Vector<AttrFallbackData> prepare_attribute_fallbacks(
     GatherTasksInfo &gather_info,
     const Instances &instances,
-    const OrderedAttributes &ordered_attributes)
+    const OrderedAttributes &ordered_attributes,
+    const AttributeNameIndexCache &name_index_cache)
 {
   Vector<AttrFallbackData> attributes_to_override;
   const bke::AttributeAccessor attributes = instances.attributes();
   attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
-    const int attribute_index = ordered_attributes.names.index_of_try(iter.name);
-    if (attribute_index == -1) {
+    const int *attribute_index_ptr = name_index_cache.name_to_index.lookup_ptr(iter.name);
+    if (!attribute_index_ptr) {
       /* The attribute is not propagated to the final geometry. */
       return;
     }
+    const int attribute_index = *attribute_index_ptr;
     const bke::GAttributeReader attribute = iter.get();
     if (!attribute) {
       return;
@@ -686,16 +708,25 @@ static void gather_realize_tasks_for_instances(GatherTasksInfo &gather_info,
 
   /* Prepare attribute fallbacks. */
   InstanceContext instance_context = base_instance_context;
+  /* Build caches for attribute name lookups to avoid repeated string comparisons. */
+  const AttributeNameIndexCache pointcloud_cache(instances.attributes(),
+                                                 gather_info.pointclouds.attributes);
   Vector<AttrFallbackData> pointcloud_attributes_to_override = prepare_attribute_fallbacks(
-      gather_info, instances, gather_info.pointclouds.attributes);
+      gather_info, instances, gather_info.pointclouds.attributes, pointcloud_cache);
+  const AttributeNameIndexCache mesh_cache(instances.attributes(), gather_info.meshes.attributes);
   Vector<AttrFallbackData> mesh_attributes_to_override = prepare_attribute_fallbacks(
-      gather_info, instances, gather_info.meshes.attributes);
+      gather_info, instances, gather_info.meshes.attributes, mesh_cache);
+  const AttributeNameIndexCache curve_cache(instances.attributes(), gather_info.curves.attributes);
   Vector<AttrFallbackData> curve_attributes_to_override = prepare_attribute_fallbacks(
-      gather_info, instances, gather_info.curves.attributes);
+      gather_info, instances, gather_info.curves.attributes, curve_cache);
+  const AttributeNameIndexCache grease_pencil_cache(instances.attributes(),
+                                                    gather_info.grease_pencils.attributes);
   Vector<AttrFallbackData> grease_pencil_attributes_to_override = prepare_attribute_fallbacks(
-      gather_info, instances, gather_info.grease_pencils.attributes);
+      gather_info, instances, gather_info.grease_pencils.attributes, grease_pencil_cache);
+  const AttributeNameIndexCache instance_cache(instances.attributes(),
+                                               gather_info.instances_attriubutes);
   Vector<AttrFallbackData> instance_attributes_to_override = prepare_attribute_fallbacks(
-      gather_info, instances, gather_info.instances_attriubutes);
+      gather_info, instances, gather_info.instances_attriubutes, instance_cache);
 
   const bool is_top_level = current_depth == 0;
   /* If at top level, get instance indices from selection field, else use all instances. */

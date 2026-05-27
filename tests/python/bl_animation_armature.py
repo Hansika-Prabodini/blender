@@ -349,23 +349,19 @@ class ArmatureCreationTest(unittest.TestCase):
             actual_head = bone.head.to_tuple()
             actual_tail = bone.tail.to_tuple()
 
-            head_msg = "\n{}:\n  Expected head ({:.8f}, {:.8f}, {:.8f}),\n      Actual is ({:.8f}, {:.8f}, {:.8f}).\n  {}".format(
-                name, expect_head[0], expect_head[1], expect_head[2], actual_head[0], actual_head[1], actual_head[2], msg)
-            self.assertAlmostEqual(expect_head[0], actual_head[0], places=places, msg=head_msg)
-            self.assertAlmostEqual(expect_head[1], actual_head[1], places=places, msg=head_msg)
-            self.assertAlmostEqual(expect_head[2], actual_head[2], places=places, msg=head_msg)
-            # print("\n{}:\n  Head is ({:.8f}, {:.8f}, {:.8f})".format(
-            #     name, actual_head[0], actual_head[1], actual_head[2]))
+            head_msg = (f"\n{name}:\n  Expected head ({expect_head[0]:.8f}, {expect_head[1]:.8f}, {expect_head[2]:.8f}),\n"
+                        f"      Actual is ({actual_head[0]:.8f}, {actual_head[1]:.8f}, {actual_head[2]:.8f}).\n  {msg}")
+            for i in range(3):
+                self.assertAlmostEqual(expect_head[i], actual_head[i], places=places, msg=head_msg)
+            # print(f"\n{name}:\n  Head is ({actual_head[0]:.8f}, {actual_head[1]:.8f}, {actual_head[2]:.8f})")
 
-            tail_msg = "\n{}:\n  Expected tail ({:.8f}, {:.8f}, {:.8f}),\n      Actual is ({:.8f}, {:.8f}, {:.8f}).\n  {}".format(
-                name, expect_tail[0], expect_tail[1], expect_tail[2], actual_tail[0], actual_tail[1], actual_tail[2], msg)
-            self.assertAlmostEqual(expect_tail[0], actual_tail[0], places=places, msg=tail_msg)
-            self.assertAlmostEqual(expect_tail[1], actual_tail[1], places=places, msg=tail_msg)
-            self.assertAlmostEqual(expect_tail[2], actual_tail[2], places=places, msg=tail_msg)
-            # print("  Tail is ({:.8f}, {:.8f}, {:.8f})".format(
-            #     actual_tail[0], actual_tail[1], actual_tail[2]))
+            tail_msg = (f"\n{name}:\n  Expected tail ({expect_tail[0]:.8f}, {expect_tail[1]:.8f}, {expect_tail[2]:.8f}),\n"
+                        f"      Actual is ({actual_tail[0]:.8f}, {actual_tail[1]:.8f}, {actual_tail[2]:.8f}).\n  {msg}")
+            for i in range(3):
+                self.assertAlmostEqual(expect_tail[i], actual_tail[i], places=places, msg=tail_msg)
+            # print(f"  Tail is ({actual_tail[0]:.8f}, {actual_tail[1]:.8f}, {actual_tail[2]:.8f})")
 
-            self.assertEqual(expect_connected, bone.use_connect, msg="{}: {}".format(bone.name, msg))
+            self.assertEqual(expect_connected, bone.use_connect, msg=f"{bone.name}: {msg}")
 
         check_bone("root", (0, 0, 0), (0, 0, 1),
                    expect_connected=True, msg="Should not have changed.")
@@ -407,11 +403,8 @@ class ArmatureCreationTest(unittest.TestCase):
 def main():
     import sys
 
-    if '--' in sys.argv:
-        argv = [sys.argv[0]] + sys.argv[sys.argv.index('--') + 1:]
-    else:
-        # Avoid passing all of Blender's arguments to unittest.main()
-        argv = [sys.argv[0]]
+    # Avoid passing all of Blender's arguments to unittest.main()
+    argv = sys.argv[0:1] + (sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
 
     unittest.main(argv=argv, exit=False)
 

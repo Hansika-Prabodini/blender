@@ -20,6 +20,7 @@ else:
     MAX_RECURSIVE = 8
 
 seek_count = [0]
+BASIC_TYPES = (float, int, bool, type(None))
 
 
 def seek(r, txt, recurs):
@@ -46,7 +47,7 @@ def seek(r, txt, recurs):
     # print(dir(r))
 
     # basic types
-    if type_r in {float, int, bool, type(None)}:
+    if type_r in BASIC_TYPES:
         if PRINT_DATA:
             print(txt + ' -> ' + str(r))
         return
@@ -63,7 +64,7 @@ def seek(r, txt, recurs):
 
     if keys is not None:
         if PRINT_DATA:
-            print(txt + '.keys() - ' + str(r.keys()))
+            print(txt + '.keys() - ' + str(keys))
 
     try:
         __members__ = dir(r)

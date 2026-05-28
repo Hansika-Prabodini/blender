@@ -28,10 +28,14 @@ def seek(r, txt, recurs):
 
     if PRINT_DATA_INT:
         if not (seek_count[0] % PRINT_DATA_INT):
-            print(seek_count[0], txt)
+            print(f"{seek_count[0]} {txt}")
 
-    if PRINT_DATA:
-        print(txt)
+    # helper to centralize PRINT_DATA checks
+    def _p(s):
+        if PRINT_DATA:
+            print(s)
+
+    _p(txt)
 
     newtxt = ''
 
@@ -47,13 +51,11 @@ def seek(r, txt, recurs):
 
     # basic types
     if type_r in {float, int, bool, type(None)}:
-        if PRINT_DATA:
-            print(txt + ' -> ' + str(r))
+        _p(f"{txt} -> {r}")
         return
 
     if type_r is str:
-        if PRINT_DATA:
-            print(txt + ' -> "' + str(r) + '"')
+        _p(f'{txt} -> "{r}"')
         return
 
     try:
@@ -62,8 +64,7 @@ def seek(r, txt, recurs):
         keys = None
 
     if keys is not None:
-        if PRINT_DATA:
-            print(txt + '.keys() - ' + str(r.keys()))
+        _p(f"{txt}.keys() - {r.keys()}")
 
     try:
         __members__ = dir(r)
@@ -75,7 +76,7 @@ def seek(r, txt, recurs):
             continue
 
         if GEN_PATH:
-            newtxt = txt + '.' + item
+            newtxt = f"{txt}.{item}"
 
         if item == 'rna_type' and VERBOSE_TYPE is False:  # just avoid because it spits out loads of data
             continue
@@ -87,7 +88,7 @@ def seek(r, txt, recurs):
     if keys:
         for k in keys:
             if GEN_PATH:
-                newtxt = txt + '["' + k + '"]'
+                newtxt = f'{txt}["{k}"]'
             seek(r.__getitem__(k), newtxt, recurs + 1)
 
     else:
@@ -99,16 +100,15 @@ def seek(r, txt, recurs):
         if VERBOSE is False and length >= 4:
             for i in (0, length - 1):
                 if i > 0:
-                    if PRINT_DATA:
-                        print((" " * len(txt)) + " ... skipping " + str(length - 2) + " items ...")
+                    _p(f'{" " * len(txt)} ... skipping {length - 2} items ...')
 
                 if GEN_PATH:
-                    newtxt = txt + '[' + str(i) + ']'
+                    newtxt = f"{txt}[{i}]"
                 seek(r[i], newtxt, recurs + 1)
         else:
             for i in range(length):
                 if GEN_PATH:
-                    newtxt = txt + '[' + str(i) + ']'
+                    newtxt = f"{txt}[{i}]"
                 seek(r[i], newtxt, recurs + 1)
 
 
@@ -125,4 +125,4 @@ for d in dir(bpy.types):
         seek(r, 'bpy.types.' + d + '.bl_rna', 0)
 '''
 
-print("iter over ", seek_count, "rna items")
+print(f"iter over {seek_count} rna items")

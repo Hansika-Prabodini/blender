@@ -60,7 +60,7 @@ struct WeldLoop {
       int loop_next;
     };
   };
-};
+} ATTR_ALIGNED(16);
 
 struct WeldPoly {
   union {
@@ -80,7 +80,7 @@ struct WeldPoly {
 #endif
     };
   };
-};
+} ATTR_ALIGNED(32);
 
 struct WeldMesh {
   /* These vectors indicate the index of elements that will participate in the creation of groups.

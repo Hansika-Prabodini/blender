@@ -24,18 +24,31 @@ seek_count = [0]
 
 def seek(r, txt, recurs):
 
+    # Cache frequently used globals and builtins to locals to reduce lookup overhead.
+    PRINT_DATA_INT_l = PRINT_DATA_INT
+    PRINT_DATA_l = PRINT_DATA
+    GEN_PATH_l = GEN_PATH
+    VERBOSE_l = VERBOSE
+    VERBOSE_TYPE_l = VERBOSE_TYPE
+    MAX_RECURSIVE_l = MAX_RECURSIVE
+
+    _dir = dir
+    _getattr = getattr
+    _len = len
+    _str = str
+
     seek_count[0] += 1
 
-    if PRINT_DATA_INT:
-        if not (seek_count[0] % PRINT_DATA_INT):
+    if PRINT_DATA_INT_l:
+        if not (seek_count[0] % PRINT_DATA_INT_l):
             print(seek_count[0], txt)
 
-    if PRINT_DATA:
+    if PRINT_DATA_l:
         print(txt)
 
     newtxt = ''
 
-    if recurs > MAX_RECURSIVE:
+    if recurs > MAX_RECURSIVE_l:
         # print ("Recursion is over max")
         # print (txt)
         return
@@ -47,26 +60,34 @@ def seek(r, txt, recurs):
 
     # basic types
     if type_r in {float, int, bool, type(None)}:
-        if PRINT_DATA:
-            print(txt + ' -> ' + str(r))
+        if PRINT_DATA_l:
+            print(txt + ' -> ' + _str(r))
         return
 
     if type_r is str:
-        if PRINT_DATA:
-            print(txt + ' -> "' + str(r) + '"')
+        if PRINT_DATA_l:
+            print(txt + ' -> "' + _str(r) + '"')
         return
 
+    # Try to get mapping keys once (avoid calling r.keys() multiple times).
     try:
-        keys = r.keys()
+        keys_attr = _getattr(r, "keys", None)
+        if callable(keys_attr):
+            try:
+                keys = keys_attr()
+            except Exception:
+                keys = None
+        else:
+            keys = None
     except Exception:
         keys = None
 
     if keys is not None:
-        if PRINT_DATA:
-            print(txt + '.keys() - ' + str(r.keys()))
+        if PRINT_DATA_l:
+            print(txt + '.keys() - ' + _str(keys))
 
     try:
-        __members__ = dir(r)
+        __members__ = _dir(r)
     except Exception:
         __members__ = []
 
@@ -74,41 +95,42 @@ def seek(r, txt, recurs):
         if item.startswith("__"):
             continue
 
-        if GEN_PATH:
+        if GEN_PATH_l:
             newtxt = txt + '.' + item
 
-        if item == 'rna_type' and VERBOSE_TYPE is False:  # just avoid because it spits out loads of data
+        if item == 'rna_type' and VERBOSE_TYPE_l is False:  # just avoid because it spits out loads of data
             continue
 
-        value = getattr(r, item, None)
+        value = _getattr(r, item, None)
 
         seek(value, newtxt, recurs + 1)
 
     if keys:
         for k in keys:
-            if GEN_PATH:
+            if GEN_PATH_l:
                 newtxt = txt + '["' + k + '"]'
+            # preserve original exception semantics by calling __getitem__ directly
             seek(r.__getitem__(k), newtxt, recurs + 1)
 
     else:
         try:
-            length = len(r)
+            length = _len(r)
         except Exception:
             length = 0
 
-        if VERBOSE is False and length >= 4:
+        if VERBOSE_l is False and length >= 4:
             for i in (0, length - 1):
                 if i > 0:
-                    if PRINT_DATA:
-                        print((" " * len(txt)) + " ... skipping " + str(length - 2) + " items ...")
+                    if PRINT_DATA_l:
+                        print((" " * _len(txt)) + " ... skipping " + _str(length - 2) + " items ...")
 
-                if GEN_PATH:
-                    newtxt = txt + '[' + str(i) + ']'
+                if GEN_PATH_l:
+                    newtxt = txt + '[' + _str(i) + ']'
                 seek(r[i], newtxt, recurs + 1)
         else:
             for i in range(length):
-                if GEN_PATH:
-                    newtxt = txt + '[' + str(i) + ']'
+                if GEN_PATH_l:
+                    newtxt = txt + '[' + _str(i) + ']'
                 seek(r[i], newtxt, recurs + 1)
 
 

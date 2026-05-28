@@ -1373,19 +1373,27 @@ static void merge_customdata_all(Span<int> dest_map,
 
   bool finalize_map = false;
   int dest_index = 0;
-  for (int i = 0; i < source_size; i++) {
-    while (i < source_size && dest_map[i] == OUT_OF_CONTEXT) {
-      r_final_map[i] = dest_index;
+  const int *dest_map_data = dest_map.data();
+  int *final_map_data = r_final_map.data();
+  
+  for (int i = 0; i < source_size; ) {
+    /* Fast path: skip OUT_OF_CONTEXT values */
+    while (i < source_size && dest_map_data[i] == OUT_OF_CONTEXT) {
+      final_map_data[i] = dest_index;
       r_src_index_offsets.append_unchecked(r_src_index_data.size());
       r_src_index_data.append(i);
       dest_index++;
       i++;
     }
 
-    if (i == source_size) {
+    if (i >= source_size) {
       break;
     }
-    if (dest_map[i] == i) {
+    
+    const int dest_val = dest_map_data[i];
+    
+    /* Check if it's a self-reference (no merge needed) */
+    if (dest_val == i) {
       if (do_mix_data) {
         r_src_index_offsets.append_unchecked(r_src_index_data.size());
         r_src_index_data.extend(groups_buffer.as_span().slice(groups_offs[i]));
@@ -1394,36 +1402,38 @@ static void merge_customdata_all(Span<int> dest_map,
         r_src_index_offsets.append_unchecked(r_src_index_data.size());
         r_src_index_data.append(i);
       }
-      r_final_map[i] = dest_index;
+      final_map_data[i] = dest_index;
       dest_index++;
     }
-    else if (dest_map[i] == ELEM_COLLAPSED) {
+    /* Check for collapsed elements */
+    else if (dest_val == ELEM_COLLAPSED) {
       /* Any value will do. This field must not be accessed anymore. */
-      r_final_map[i] = 0;
+      final_map_data[i] = 0;
     }
+    /* Handle merge references */
     else {
-      const int elem_dest = dest_map[i];
-      BLI_assert(elem_dest != OUT_OF_CONTEXT);
-      BLI_assert(dest_map[elem_dest] == elem_dest);
-      if (elem_dest < i) {
-        r_final_map[i] = r_final_map[elem_dest];
-        BLI_assert(r_final_map[i] < dest_size);
+      BLI_assert(dest_val != OUT_OF_CONTEXT);
+      BLI_assert(dest_map_data[dest_val] == dest_val);
+      if (dest_val < i) {
+        final_map_data[i] = final_map_data[dest_val];
+        BLI_assert(final_map_data[i] < dest_size);
       }
       else {
         /* Mark as negative to set at the end. */
-        r_final_map[i] = -elem_dest;
+        final_map_data[i] = -dest_val;
         finalize_map = true;
       }
     }
+    i++;
   }
 
   if (finalize_map) {
-    for (const int i : r_final_map.index_range()) {
-      if (r_final_map[i] < 0) {
-        r_final_map[i] = r_final_map[-r_final_map[i]];
-        BLI_assert(r_final_map[i] < dest_size);
+    for (int i = 0; i < source_size; i++) {
+      if (final_map_data[i] < 0) {
+        final_map_data[i] = final_map_data[-final_map_data[i]];
+        BLI_assert(final_map_data[i] < dest_size);
       }
-      BLI_assert(r_final_map[i] >= 0);
+      BLI_assert(final_map_data[i] >= 0);
     }
   }
 

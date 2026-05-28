@@ -47,7 +47,7 @@ struct WeldEdge {
   int edge_orig;
   int vert_a;
   int vert_b;
-};
+} ATTR_ALIGNED(16);
 
 struct WeldLoop {
   union {
@@ -60,7 +60,7 @@ struct WeldLoop {
       int loop_next;
     };
   };
-};
+} ATTR_ALIGNED(16);
 
 struct WeldPoly {
   union {
@@ -80,7 +80,7 @@ struct WeldPoly {
 #endif
     };
   };
-};
+} ATTR_ALIGNED(32);
 
 struct WeldMesh {
   /* These vectors indicate the index of elements that will participate in the creation of groups.
@@ -135,7 +135,7 @@ struct WeldLoopOfPolyIter {
   int group_len;
   int v;
   int e;
-};
+} ATTR_ALIGNED(64);
 
 /* -------------------------------------------------------------------- */
 /** \name Debug Utils

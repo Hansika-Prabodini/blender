@@ -63,17 +63,16 @@ def batch_import(
                 if pattern_match(filename):
                     yield os.path.join(dirpath, filename)
 
-    print("Collecting %r files in %s" % (match, path), end="")
-
     files = list(file_generator(path))
     files_len = len(files)
-    end = min(end, len(files))
-    print(" found %d" % files_len, end="")
+    end = min(end, files_len)
 
     files.sort()
     files = files[start:end]
-    if len(files) != files_len:
-        print(" using a subset in (%d, %d), total %d" % (start, end, len(files)), end="")
+    subset_len = len(files)
+    subset_info = f" using a subset in ({start}, {end}), total {subset_len}" if subset_len != files_len else ""
+
+    print(f"Collecting {match!r} files in {path}: found {files_len}{subset_info}")
 
     import bpy
     op = eval(operator)
@@ -82,7 +81,7 @@ def batch_import(
     tot_fail = 0
 
     for i, f in enumerate(files):
-        print("    %s(filepath=%r) # %d of %d" % (operator, f, i + start, len(files)))
+        print(f"    {operator}(filepath={f!r}) # {i + start} of {len(files)}")
 
         # hack so loading the new file doesn't undo our loaded addons
         addon_utils.reset_all = lambda: None  # XXX, hack
@@ -104,14 +103,14 @@ def batch_import(
             fout = os.path.join(save_path, os.path.relpath(f, path))
             fout_blend = os.path.splitext(fout)[0] + ".blend"
 
-            print("\tSaving: %r" % fout_blend)
+            print(f"\tSaving: {fout_blend!r}")
 
             fout_dir = os.path.dirname(fout_blend)
             os.makedirs(fout_dir, exist_ok=True)
 
             bpy.ops.wm.save_as_mainfile(filepath=fout_blend)
 
-    print("finished, done:%d,  fail:%d" % (tot_done, tot_fail))
+    print(f"finished, done:{tot_done},  fail:{tot_fail}")
 
 
 def main():

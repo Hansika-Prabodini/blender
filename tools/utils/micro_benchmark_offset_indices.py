@@ -25,7 +25,6 @@ CPP_SOURCE = r'''
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <numeric>
 #include <vector>
 
 static void accumulate_index(std::vector<int> &counts_to_offsets)

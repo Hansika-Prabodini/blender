@@ -15,19 +15,23 @@ namespace blender::offset_indices {
 OffsetIndices<int> accumulate_counts_to_offsets(MutableSpan<int> counts_to_offsets,
                                                 const int start_offset)
 {
+  BLI_assert(!counts_to_offsets.is_empty());
+
   int offset = start_offset;
   int64_t offset_i64 = start_offset;
+  int *offsets = counts_to_offsets.data();
+  int *const offsets_end = offsets + counts_to_offsets.size() - 1;
 
-  for (const int i : counts_to_offsets.index_range().drop_back(1)) {
-    const int count = counts_to_offsets[i];
+  for (; offsets != offsets_end; offsets++) {
+    const int count = *offsets;
     BLI_assert(count >= 0);
-    counts_to_offsets[i] = offset;
+    *offsets = offset;
     offset += count;
 #ifndef NDEBUG
     offset_i64 += count;
 #endif
   }
-  counts_to_offsets.last() = offset;
+  *offsets = offset;
 
   BLI_assert_msg(offset == offset_i64, "Integer overflow occurred");
   UNUSED_VARS_NDEBUG(offset_i64);
@@ -38,17 +42,22 @@ OffsetIndices<int> accumulate_counts_to_offsets(MutableSpan<int> counts_to_offse
 std::optional<OffsetIndices<int>> accumulate_counts_to_offsets_with_overflow_check(
     MutableSpan<int> counts_to_offsets, int start_offset)
 {
+  BLI_assert(!counts_to_offsets.is_empty());
+
   /* This variant was measured to be about ~8% slower than the version without overflow check.
    * Since this function is often a serial bottleneck, we use a separate code path for when an
    * overflow check is requested. */
   int64_t offset = start_offset;
-  for (const int i : counts_to_offsets.index_range().drop_back(1)) {
-    const int count = counts_to_offsets[i];
+  int *offsets = counts_to_offsets.data();
+  int *const offsets_end = offsets + counts_to_offsets.size() - 1;
+
+  for (; offsets != offsets_end; offsets++) {
+    const int count = *offsets;
     BLI_assert(count >= 0);
-    counts_to_offsets[i] = offset;
+    *offsets = offset;
     offset += count;
   }
-  counts_to_offsets.last() = offset;
+  *offsets = offset;
   const bool has_overflow = offset >= std::numeric_limits<int>::max();
   if (has_overflow) {
     return std::nullopt;

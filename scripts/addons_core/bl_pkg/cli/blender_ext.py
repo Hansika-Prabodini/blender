@@ -1154,6 +1154,9 @@ class PathPatternMatch:
                 del pattern_next
                 break
 
+        if pattern == "**":
+            return "(?s:.*)\\Z"
+
         # Remove redundant leading/trailing "**"
         # Besides being redundant, they break `pattern_double_star_indices` checks below.
         while True:  # Strip end.

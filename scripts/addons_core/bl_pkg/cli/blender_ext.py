@@ -1130,7 +1130,7 @@ class PathPatternMatch:
             if regex.match(path_test):
                 if negate:
                     result = False
-                    break
+                    continue
                 # Match but don't break as this may be negated in the future.
                 result = True
         return result

@@ -279,7 +279,7 @@ def ngon_tessellate(from_data, indices, fix_loops=True, debug_print=True):
 
         # same as reversed(range(1, len(verts))):
         for i in range(len(verts) - 1, 0, -1):
-            if verts[i][1] == verts[i - 1][0]:
+            if verts[i] == verts[i - 1]:
                 verts.pop(i - 1)
 
         fill = tessellate_polygon([verts])

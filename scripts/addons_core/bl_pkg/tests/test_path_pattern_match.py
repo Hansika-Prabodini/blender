@@ -176,6 +176,16 @@ class TestMulti(unittest.TestCase, TestPathMatch_MixIn):
 
         self.assertEqual(*self.match_paths_for_cmp([(False, "test/data.csv")], pattern))
 
+    def test_negate_override(self) -> None:
+        pattern = PathPatternMatch([
+            "*.pyc",
+            "!keep.pyc",
+            "keep.pyc",
+        ])
+
+        self.assertEqual(*self.match_paths_for_cmp([(True, "test/drop.pyc")], pattern))
+        self.assertEqual(*self.match_paths_for_cmp([(True, "test/keep.pyc")], pattern))
+
 
 if __name__ == "__main__":
     unittest.main()

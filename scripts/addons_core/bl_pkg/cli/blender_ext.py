@@ -1189,6 +1189,9 @@ class PathPatternMatch:
             only_directory = True
             pattern = pattern.rstrip("/")
 
+        if pattern == "**":
+            pattern = "*"
+
         # Separate components:
         pattern_split = pattern.split("/")
 

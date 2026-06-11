@@ -121,6 +121,12 @@ class TestSingle(unittest.TestCase, TestPathMatch_MixIn):
         self.assertEqual(*self.match_paths_for_cmp([(False, "a/x/y/z/_b")], pattern))
         self.assertEqual(*self.match_paths_for_cmp([(False, "a/_b")], pattern))
 
+    def test_double_star_as_entire_pattern(self) -> None:
+        pattern = PathPatternMatch(["**"])
+        self.assertEqual(*self.match_paths_for_cmp([(True, "a")], pattern))
+        self.assertEqual(*self.match_paths_for_cmp([(True, "a/b")], pattern))
+        self.assertEqual(*self.match_paths_for_cmp([(True, "a/b/")], pattern))
+
     def test_double_star_directory(self) -> None:
         pattern = PathPatternMatch(["a/**/b/"])
         self.assertEqual(*self.match_paths_for_cmp([(True, "a/x/b/")], pattern))

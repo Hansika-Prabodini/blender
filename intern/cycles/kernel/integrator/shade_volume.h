@@ -2320,8 +2320,9 @@ ccl_device_forceinline void volume_integrate_ray_marching(
     if (volume_shader_sample(kg, state, sd, &coeff)) {
       const int closure_flag = sd->flag;
 
-      /* Evaluate transmittance over segment. */
-      const float dt = vstep.t.length();
+      /* Evaluate transmittance over segment.
+       * dt is only needed when extinction or emission coefficients are present. */
+      const float dt = (closure_flag & (SD_EXTINCTION | SD_EMISSION)) ? vstep.t.length() : 0.0f;
       const Spectrum transmittance = (closure_flag & SD_EXTINCTION) ?
                                          volume_color_transmittance(coeff.sigma_t, dt) :
                                          one_spectrum();
@@ -2331,7 +2332,19 @@ ccl_device_forceinline void volume_integrate_ray_marching(
         /* Only write emission before indirect light scatter position, since we terminate
          * stepping at that point if we have already found a direct light scatter position. */
         if (!result.indirect_scatter) {
-          const Spectrum emission = volume_emission_integrate(&coeff, closure_flag, dt);
+          /* Integrate emission analytically over the segment, reusing the already-computed
+           * transmittance to avoid a redundant exp() evaluation per step. */
+          Spectrum emission = coeff.emission;
+          if (closure_flag & SD_EXTINCTION) {
+            const Spectrum optical_depth = coeff.sigma_t * dt;
+            emission *= select(optical_depth > 1e-5f,
+                               (one_spectrum() - transmittance) / coeff.sigma_t,
+                               /* Second order Taylor expansion to avoid precision issue. */
+                               dt * (one_spectrum() - 0.5f * optical_depth));
+          }
+          else {
+            emission *= dt;
+          }
           accum_emission += result.indirect_throughput * emission;
           guiding_record_volume_emission(kg, state, emission);
         }
@@ -2340,7 +2353,7 @@ ccl_device_forceinline void volume_integrate_ray_marching(
       if (closure_flag & SD_SCATTER) {
 #  ifdef __DENOISING_FEATURES__
         /* Accumulate albedo for denoising features. */
-        if (write_denoising_features && (closure_flag & SD_SCATTER)) {
+        if (write_denoising_features) {
           const Spectrum albedo = safe_divide_color(coeff.sigma_s, coeff.sigma_t);
           accum_albedo += result.indirect_throughput * albedo * (one_spectrum() - transmittance);
         }
@@ -2375,19 +2388,6 @@ ccl_device_forceinline void volume_integrate_ray_marching(
   if (write_denoising_features) {
     film_write_denoising_features_volume(
         kg, state, accum_albedo, result.indirect_scatter, render_buffer);
-  }
-#  endif /* __DENOISING_FEATURES__ */
-}
-
-/** \} */
-
-/* Path tracing: sample point on light and evaluate light shader, then
- * queue shadow ray to be traced. */
-ccl_device_forceinline void integrate_volume_direct_light(
-    KernelGlobals kg,
-    IntegratorState state,
-    const ccl_private ShaderData *ccl_restrict sd,
-    const ccl_private RNGState *ccl_restrict rng_state,
     const float3 P,
     const ccl_private ShaderVolumePhases *ccl_restrict phases,
 #  if defined(__PATH_GUIDING__)

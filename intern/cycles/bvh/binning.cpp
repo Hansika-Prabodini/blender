@@ -75,29 +75,37 @@ BVHObjectBinning::BVHObjectBinning(const BVHRange &job,
         *this, prims, *aligned_space, &cent_bounds_);
   }
 
-  /* compute number of bins to use and precompute scaling factor for binning */
+  /* Clamp bin count to MAX_BINS; the 4 + 0.05*n heuristic balances
+   * SAH accuracy against the O(n) binning cost. */
   num_bins = min(size_t(MAX_BINS), size_t(4.0f + 0.05f * size()));
+  /* Precompute per-axis scale so that a centroid maps to [0, num_bins)
+   * via: bin_idx = (centroid - min) * scale */
   scale = safe_divide(make_float3((float)num_bins), cent_bounds_.size());
 
-  /* initialize binning counter and bounds */
-  BoundBox bin_bounds[MAX_BINS][4]; /* bounds for every bin in every dimension */
-  int4 bin_count[MAX_BINS];         /* number of primitives mapped to bin */
+  /* Initialize per-bin accumulators.  The second dimension of bin_bounds is
+   * sized 4 (not 3) so that each row is 4-element aligned, which avoids
+   * false sharing and keeps the per-dimension stride a power-of-two. */
+  BoundBox bin_bounds[MAX_BINS][4]; /* bounds accumulated per bin, per axis (axes 0-2 used; [3] is alignment pad) */
+  int4 bin_count[MAX_BINS];         /* primitive count per bin across all three axes (stored as int4) */
 
   for (size_t i = 0; i < num_bins; i++) {
     bin_count[i] = make_int4(0);
     bin_bounds[i][0] = bin_bounds[i][1] = bin_bounds[i][2] = BoundBox::empty;
   }
 
-  /* map geometry to bins, unrolled once */
+  /* Map each primitive to its bin for all three axes.  The loop is manually
+   * unrolled by 2 so that the prefetch of the next cache line (8 prims
+   * ahead) can overlap with the current iteration's binning work. */
   {
-    int64_t i;
+    int64_t prim_idx;
 
-    for (i = 0; i < int64_t(size()) - 1; i += 2) {
-      prefetch_L2(&prims[start() + i + 8]);
+    for (prim_idx = 0; prim_idx < int64_t(size()) - 1; prim_idx += 2) {
+      prefetch_L2(&prims[start() + prim_idx + 8]);
 
-      /* map even and odd primitive to bin */
-      const BVHReference &prim0 = prims[start() + i + 0];
-      const BVHReference &prim1 = prims[start() + i + 1];
+      /* Bin the even-indexed and odd-indexed primitives together to amortise
+       * the loop overhead and hide memory latency via the prefetch above. */
+      const BVHReference &prim0 = prims[start() + prim_idx + 0];
+      const BVHReference &prim1 = prims[start() + prim_idx + 1];
 
       const BoundBox bounds0 = get_prim_bounds(prim0);
       const BoundBox bounds1 = get_prim_bounds(prim1);
@@ -105,107 +113,120 @@ BVHObjectBinning::BVHObjectBinning(const BVHRange &job,
       const int4 bin0 = get_bin(bounds0);
       const int4 bin1 = get_bin(bounds1);
 
-      /* increase bounds for bins for even primitive */
-      const int b00 = (int)extract<0>(bin0);
-      bin_count[b00][0]++;
-      bin_bounds[b00][0].grow(bounds0);
-      const int b01 = (int)extract<1>(bin0);
-      bin_count[b01][1]++;
-      bin_bounds[b01][1].grow(bounds0);
-      const int b02 = (int)extract<2>(bin0);
-      bin_count[b02][2]++;
-      bin_bounds[b02][2].grow(bounds0);
+      /* Accumulate the even primitive's bounds into its bins for each axis. */
+      const int bin0_x = (int)extract<0>(bin0);
+      bin_count[bin0_x][0]++;
+      bin_bounds[bin0_x][0].grow(bounds0);
+      const int bin0_y = (int)extract<1>(bin0);
+      bin_count[bin0_y][1]++;
+      bin_bounds[bin0_y][1].grow(bounds0);
+      const int bin0_z = (int)extract<2>(bin0);
+      bin_count[bin0_z][2]++;
+      bin_bounds[bin0_z][2].grow(bounds0);
 
-      /* increase bounds of bins for odd primitive */
-      const int b10 = (int)extract<0>(bin1);
-      bin_count[b10][0]++;
-      bin_bounds[b10][0].grow(bounds1);
-      const int b11 = (int)extract<1>(bin1);
-      bin_count[b11][1]++;
-      bin_bounds[b11][1].grow(bounds1);
-      const int b12 = (int)extract<2>(bin1);
-      bin_count[b12][2]++;
-      bin_bounds[b12][2].grow(bounds1);
+      /* Accumulate the odd primitive's bounds into its bins for each axis. */
+      const int bin1_x = (int)extract<0>(bin1);
+      bin_count[bin1_x][0]++;
+      bin_bounds[bin1_x][0].grow(bounds1);
+      const int bin1_y = (int)extract<1>(bin1);
+      bin_count[bin1_y][1]++;
+      bin_bounds[bin1_y][1].grow(bounds1);
+      const int bin1_z = (int)extract<2>(bin1);
+      bin_count[bin1_z][2]++;
+      bin_bounds[bin1_z][2].grow(bounds1);
     }
 
-    /* for uneven number of primitives */
-    if (i < int64_t(size())) {
-      /* map primitive to bin */
-      const BVHReference &prim0 = prims[start() + i];
+    /* Handle the last primitive when the total count is odd. */
+    if (prim_idx < int64_t(size())) {
+      /* Map the remaining primitive to its bin for all three axes. */
+      const BVHReference &prim0 = prims[start() + prim_idx];
       const BoundBox bounds0 = get_prim_bounds(prim0);
       const int4 bin0 = get_bin(bounds0);
 
       /* increase bounds of bins */
-      const int b00 = (int)extract<0>(bin0);
-      bin_count[b00][0]++;
-      bin_bounds[b00][0].grow(bounds0);
-      const int b01 = (int)extract<1>(bin0);
-      bin_count[b01][1]++;
-      bin_bounds[b01][1].grow(bounds0);
-      const int b02 = (int)extract<2>(bin0);
-      bin_count[b02][2]++;
-      bin_bounds[b02][2].grow(bounds0);
+      const int bin0_x = (int)extract<0>(bin0);
+      bin_count[bin0_x][0]++;
+      bin_bounds[bin0_x][0].grow(bounds0);
+      const int bin0_y = (int)extract<1>(bin0);
+      bin_count[bin0_y][1]++;
+      bin_bounds[bin0_y][1].grow(bounds0);
+      const int bin0_z = (int)extract<2>(bin0);
+      bin_count[bin0_z][2]++;
+      bin_bounds[bin0_z][2].grow(bounds0);
     }
   }
 
-  /* sweep from right to left and compute parallel prefix of merged bounds */
-  float4 r_area[MAX_BINS];  /* area of bounds of primitives on the right */
-  float4 r_count[MAX_BINS]; /* number of primitives on the right */
+  /* Right-to-left prefix sweep: for each candidate split plane i, accumulate
+   * the merged bounding box and primitive count of all bins to the *right*
+   * of the plane.  This gives the right-child SAH terms in O(n) rather than
+   * recomputing them for every candidate during the left-to-right pass. */
+  float4 right_half_area[MAX_BINS];  /* half-area of right-child merged bounds per axis */
+  float4 right_prim_count[MAX_BINS]; /* block-rounded primitive count on the right per axis */
   int4 count = make_int4(0);
 
-  BoundBox bx = BoundBox::empty;
-  BoundBox by = BoundBox::empty;
-  BoundBox bz = BoundBox::empty;
+  /* Per-axis running bounding boxes for the right-side prefix. */
+  BoundBox merged_bounds_x = BoundBox::empty;
+  BoundBox merged_bounds_y = BoundBox::empty;
+  BoundBox merged_bounds_z = BoundBox::empty;
 
-  for (size_t i = num_bins - 1; i > 0; i--) {
-    count = count + bin_count[i];
-    r_count[i] = blocks(count);
+  for (size_t bin_idx = num_bins - 1; bin_idx > 0; bin_idx--) {
+    count = count + bin_count[bin_idx];
+    right_prim_count[bin_idx] = blocks(count);
 
-    bx = merge(bx, bin_bounds[i][0]);
-    r_area[i][0] = bx.half_area();
-    by = merge(by, bin_bounds[i][1]);
-    r_area[i][1] = by.half_area();
-    bz = merge(bz, bin_bounds[i][2]);
-    r_area[i][2] = bz.half_area();
-    r_area[i][3] = r_area[i][2];
+    merged_bounds_x = merge(merged_bounds_x, bin_bounds[bin_idx][0]);
+    right_half_area[bin_idx][0] = merged_bounds_x.half_area();
+    merged_bounds_y = merge(merged_bounds_y, bin_bounds[bin_idx][1]);
+    right_half_area[bin_idx][1] = merged_bounds_y.half_area();
+    merged_bounds_z = merge(merged_bounds_z, bin_bounds[bin_idx][2]);
+    right_half_area[bin_idx][2] = merged_bounds_z.half_area();
+    /* Duplicate Z into slot [3] so the float4 SAH multiply is fully populated. */
+    right_half_area[bin_idx][3] = right_half_area[bin_idx][2];
   }
 
-  /* sweep from left to right and compute SAH */
-  int4 ii = make_int4(1);
-  float4 bestSAH = make_float4(FLT_MAX);
-  int4 bestSplit = make_int4(-1);
+  /* Left-to-right SAH sweep: combine the left-side prefix (accumulated here)
+   * with the pre-computed right-side prefix to evaluate SAH cost at every
+   * candidate split plane simultaneously for all three axes via float4 ops. */
+  int4 split_plane_idx = make_int4(1);  /* current candidate split plane index, per axis */
+  float4 best_sah   = make_float4(FLT_MAX);
+  int4   best_split = make_int4(-1);    /* bin index of the lowest-SAH split, per axis */
 
   count = make_int4(0);
 
-  bx = BoundBox::empty;
-  by = BoundBox::empty;
-  bz = BoundBox::empty;
+  /* Reset left-side running bounding boxes for the forward sweep. */
+  merged_bounds_x = BoundBox::empty;
+  merged_bounds_y = BoundBox::empty;
+  merged_bounds_z = BoundBox::empty;
 
-  for (size_t i = 1; i < num_bins; i++, ii += make_int4(1)) {
-    count = count + bin_count[i - 1];
+  for (size_t bin_idx = 1; bin_idx < num_bins; bin_idx++, split_plane_idx += make_int4(1)) {
+    /* Grow the left child's bounding box by all primitives in bin (bin_idx-1). */
+    count = count + bin_count[bin_idx - 1];
 
-    bx = merge(bx, bin_bounds[i - 1][0]);
-    const float Ax = bx.half_area();
-    by = merge(by, bin_bounds[i - 1][1]);
-    const float Ay = by.half_area();
-    bz = merge(bz, bin_bounds[i - 1][2]);
-    const float Az = bz.half_area();
+    merged_bounds_x = merge(merged_bounds_x, bin_bounds[bin_idx - 1][0]);
+    const float half_area_x = merged_bounds_x.half_area();
+    merged_bounds_y = merge(merged_bounds_y, bin_bounds[bin_idx - 1][1]);
+    const float half_area_y = merged_bounds_y.half_area();
+    merged_bounds_z = merge(merged_bounds_z, bin_bounds[bin_idx - 1][2]);
+    const float half_area_z = merged_bounds_z.half_area();
 
-    const float4 lCount = blocks(count);
-    const float4 lArea = make_float4(Ax, Ay, Az, Az);
-    const float4 sah = lArea * lCount + r_area[i] * r_count[i];
+    /* SAH cost = left_area * left_count + right_area * right_count (all axes). */
+    const float4 left_prim_count = blocks(count);
+    const float4 left_half_area  = make_float4(half_area_x, half_area_y, half_area_z, half_area_z);
+    const float4 sah = left_half_area * left_prim_count +
+                       right_half_area[bin_idx] * right_prim_count[bin_idx];
 
-    bestSplit = select(sah < bestSAH, ii, bestSplit);
-    bestSAH = min(sah, bestSAH);
+    best_split = select(sah < best_sah, split_plane_idx, best_split);
+    best_sah   = min(sah, best_sah);
   }
 
-  const int4 mask = make_float4(cent_bounds_.size()) <= zero_float4();
-  bestSAH = insert<3>(select(mask, make_float4(FLT_MAX), bestSAH), FLT_MAX);
+  /* Mask out axes whose centroid extent is zero — splitting along a flat
+   * axis is meaningless and would produce degenerate children. */
+  const int4 degenerate_axis_mask = make_float4(cent_bounds_.size()) <= zero_float4();
+  best_sah = insert<3>(select(degenerate_axis_mask, make_float4(FLT_MAX), best_sah), FLT_MAX);
 
-  /* find best dimension */
-  dim = get_best_dimension(bestSAH);
-  splitSAH = bestSAH[dim];
-  pos = bestSplit[dim];
+  /* Select the axis with the globally lowest SAH cost as the split dimension. */
+  dim = get_best_dimension(best_sah);
+  splitSAH = best_sah[dim];
+  pos = best_split[dim];
   leafSAH = bounds_.half_area() * blocks(size());
 }
 
@@ -220,58 +241,87 @@ void BVHObjectBinning::split(BVHReference *prims,
   BoundBox lcent_bounds = BoundBox::empty;
   BoundBox rcent_bounds = BoundBox::empty;
 
-  int64_t l = 0;
-  int64_t r = N - 1;
+  /* Two-pointer partition: move primitives whose bin index along `dim` is
+   * below `pos` to the left partition, and the rest to the right partition,
+   * swapping in-place to avoid extra allocation. */
+  int64_t left_idx  = 0;
+  int64_t right_idx = N - 1;
 
-  while (l <= r) {
-    prefetch_L2(&prims[start() + l + 8]);
-    prefetch_L2(&prims[start() + r - 8]);
+  while (left_idx <= right_idx) {
+    prefetch_L2(&prims[start() + left_idx  + 8]);
+    prefetch_L2(&prims[start() + right_idx - 8]);
 
-    const BVHReference prim = prims[start() + l];
-    const BoundBox unaligned_bounds = get_prim_bounds(prim);
-    const float3 unaligned_center = unaligned_bounds.center2();
-    const float3 center = prim.bounds().center2();
+    const BVHReference prim = prims[start() + left_idx];
+    /* Use the aligned/unaligned bounds for the bin lookup (consistent with
+     * how bins were built), but grow geometry bounds using the original
+     * primitive AABB so the child node bounds remain tight. */
+    const BoundBox aligned_prim_bounds = get_prim_bounds(prim);
+    const float3   aligned_center      = aligned_prim_bounds.center2();
+    const BoundBox geom_bounds         = prim.bounds();
+    const float3   geom_center         = geom_bounds.center2();
 
-    if (get_bin(unaligned_center)[dim] < pos) {
-      lgeom_bounds.grow(prim.bounds());
-      lcent_bounds.grow(center);
-      l++;
+    if (get_bin(aligned_center)[dim] < pos) {
+      lgeom_bounds.grow(geom_bounds);
+      lcent_bounds.grow(geom_center);
+      left_idx++;
     }
     else {
-      rgeom_bounds.grow(prim.bounds());
-      rcent_bounds.grow(center);
-      swap(prims[start() + l], prims[start() + r]);
-      r--;
+      rgeom_bounds.grow(geom_bounds);
+      rcent_bounds.grow(geom_center);
+      swap(prims[start() + left_idx], prims[start() + right_idx]);
+      right_idx--;
     }
   }
-  /* finish */
-  if (l != 0 && N - 1 - r != 0) {
-    right_o = BVHObjectBinning(BVHRange(rgeom_bounds, rcent_bounds, start() + l, N - 1 - r),
-                               prims);
-    left_o = BVHObjectBinning(BVHRange(lgeom_bounds, lcent_bounds, start(), l), prims);
+  /* If both partitions are non-empty the binning split succeeded; construct
+   * child ranges from the accumulated bounds and return early. */
+  if (left_idx != 0 && N - 1 - right_idx != 0) {
+    right_o = BVHObjectBinning(
+        BVHRange(rgeom_bounds, rcent_bounds, start() + left_idx, N - 1 - right_idx),
+        prims,
+        unaligned_heuristic_,
+        aligned_space_);
+    left_o = BVHObjectBinning(
+        BVHRange(lgeom_bounds, lcent_bounds, start(), left_idx),
+        prims,
+        unaligned_heuristic_,
+        aligned_space_);
     return;
   }
 
-  /* object medium split if we did not make progress, can happen when all
-   * primitives have same centroid */
+  /* Fallback: median object split.  This is reached only when all primitives
+   * share the same centroid, making every SAH split degenerate.  We simply
+   * cut the sorted array in half so recursion always terminates. */
   lgeom_bounds = BoundBox::empty;
   rgeom_bounds = BoundBox::empty;
   lcent_bounds = BoundBox::empty;
   rcent_bounds = BoundBox::empty;
 
-  for (size_t i = 0; i < N / 2; i++) {
-    lgeom_bounds.grow(prims[start() + i].bounds());
-    lcent_bounds.grow(prims[start() + i].bounds().center2());
+  for (size_t prim_idx = 0; prim_idx < N / 2; prim_idx++) {
+    /* Cache bounds to avoid calling bounds() twice per primitive. */
+    const BoundBox prim_bounds = prims[start() + prim_idx].bounds();
+    lgeom_bounds.grow(prim_bounds);
+    lcent_bounds.grow(prim_bounds.center2());
   }
 
-  for (size_t i = N / 2; i < N; i++) {
-    rgeom_bounds.grow(prims[start() + i].bounds());
-    rcent_bounds.grow(prims[start() + i].bounds().center2());
+  for (size_t prim_idx = N / 2; prim_idx < N; prim_idx++) {
+    /* Cache bounds to avoid calling bounds() twice per primitive. */
+    const BoundBox prim_bounds = prims[start() + prim_idx].bounds();
+    rgeom_bounds.grow(prim_bounds);
+    rcent_bounds.grow(prim_bounds.center2());
   }
 
-  right_o = BVHObjectBinning(BVHRange(rgeom_bounds, rcent_bounds, start() + N / 2, N / 2 + N % 2),
-                             prims);
-  left_o = BVHObjectBinning(BVHRange(lgeom_bounds, lcent_bounds, start(), N / 2), prims);
+  /* Forward aligned_space_ and unaligned_heuristic_ so the child binning
+   * passes use the same coordinate frame as this pass. */
+  right_o = BVHObjectBinning(
+      BVHRange(rgeom_bounds, rcent_bounds, start() + N / 2, N / 2 + N % 2),
+      prims,
+      unaligned_heuristic_,
+      aligned_space_);
+  left_o = BVHObjectBinning(
+      BVHRange(lgeom_bounds, lcent_bounds, start(), N / 2),
+      prims,
+      unaligned_heuristic_,
+      aligned_space_);
 }
 
 CCL_NAMESPACE_END

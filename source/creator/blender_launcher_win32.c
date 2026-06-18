@@ -26,7 +26,12 @@ BOOL LaunchedFromSteam()
 
   /* First find our parent process ID. */
   DWORD our_pid = GetCurrentProcessId();
-  DWORD parent_pid = -1;
+  /* Initialize to 0 (sentinel value for "not found") instead of -1.
+   * DWORD is unsigned, so assigning -1 would implicitly convert to 0xFFFFFFFF,
+   * leading to confusing signed/unsigned comparisons.
+   * Process IDs are never 0 on Windows, making 0 a safe sentinel value.
+   * See: https://learn.microsoft.com/en-us/windows/win32/procthread/process-identifiers */
+  DWORD parent_pid = 0;
 
   do {
     if (process_entry.th32ProcessID == our_pid) {
@@ -35,7 +40,11 @@ BOOL LaunchedFromSteam()
     }
   } while (Process32Next(hSnapShot, &process_entry));
 
-  if (parent_pid == -1 || !Process32First(hSnapShot, &process_entry)) {
+  /* Check if parent process was found. If parent_pid is still 0 (sentinel value),
+   * it means we didn't find the parent process in the enumeration above.
+   * This replaces the previous buggy check against -1, which relied on implicit
+   * unsigned-to-signed conversion. */
+  if (parent_pid == 0 || !Process32First(hSnapShot, &process_entry)) {
     CloseHandle(hSnapShot);
     return (FALSE);
   }

@@ -12,6 +12,26 @@
 
 namespace blender {
 
+TEST(BLI_string_utils, BLI_string_split_prefix)
+{
+  char r_pre[64], r_body[64];
+
+  /* No separator: entire string should go to body, prefix should be empty. */
+  BLI_string_split_prefix("hello", sizeof("hello"), r_pre, r_body);
+  EXPECT_STREQ(r_pre, "");
+  EXPECT_STREQ(r_body, "hello");
+
+  /* With separator: split correctly. */
+  BLI_string_split_prefix("a.b.c", sizeof("a.b.c"), r_pre, r_body);
+  EXPECT_STREQ(r_pre, "a.");
+  EXPECT_STREQ(r_body, "b.c");
+
+  /* Single character, no separator. */
+  BLI_string_split_prefix("x", sizeof("x"), r_pre, r_body);
+  EXPECT_STREQ(r_pre, "");
+  EXPECT_STREQ(r_body, "x");
+}
+
 TEST(BLI_string_utils, BLI_string_replace)
 {
   {

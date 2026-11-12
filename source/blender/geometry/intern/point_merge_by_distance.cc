@@ -149,11 +149,22 @@ PointCloud *point_merge_by_distance(const PointCloud &src_points,
 
         threading::parallel_for(IndexRange(dst_size), 1024, [&](IndexRange range) {
           for (const int i_dst : range) {
+            const Span<int> src_merge_indices = merge_map_indices.as_span().slice(map_offsets[i_dst]);
+            /* For integer and boolean attributes, mixing one value with unit weight returns that
+             * value exactly. Other types can change during normalization or conversion, so keep
+             * their original mixer path even for a single source. */
+            if constexpr (std::is_same_v<T, int> || std::is_same_v<T, int2> ||
+                          std::is_same_v<T, short2> || std::is_same_v<T, int8_t> ||
+                          std::is_same_v<T, bool>)
+            {
+              if (src_merge_indices.size() == 1) {
+                dst_attribute.span[i_dst] = src[src_merge_indices.first()];
+                continue;
+              }
+            }
             /* Create a separate mixer for every point to avoid allocating temporary buffers
              * in the mixer the size of the result point cloud and to improve memory locality. */
             bke::attribute_math::DefaultMixer<T> mixer{dst_attribute.span.slice(i_dst, 1)};
-
-            Span<int> src_merge_indices = merge_map_indices.as_span().slice(map_offsets[i_dst]);
             for (const int i_src : src_merge_indices) {
               mixer.mix_in(0, src[i_src]);
             }
